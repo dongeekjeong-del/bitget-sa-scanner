@@ -1,0 +1,9 @@
+{
+  "name": "Bitget S/A Setup Scanner",
+  "short_name": "S/A Scanner",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0d12",
+  "theme_color": "#0b0d12",
+  "description": "Read-only Bitget public-market setup scanner."
+}
