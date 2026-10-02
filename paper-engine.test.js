@@ -8,4 +8,8 @@ const short=new Paper();const s=short.enter({...signal,d:'SHORT',g:'S',st:'TRIGG
 for(const st of ['WAIT PULLBACK','INVALID','DEEP / WEAK','PASS'])assert.equal(new Paper().enter({...signal,st},cfg),null);
 assert.equal(new Paper().enter({...signal,g:'A'},cfg),null);assert.equal(new Paper().enter({...signal,l:{sl:95,t1:105}},cfg),null);
 const gap=new Paper();gap.enter({...signal,l:{sl:95,t1:115}},cfg,1000);gap.mark('BTCUSDT',116,30000);assert(gap.state.trades[0].observationGap);
-console.log('PASS: eligibility, long/short exits, fees, duplicate prevention, frozen snapshot, persistence, actual-entry RR and observation gaps');
+const manual=new Paper();const m=manual.enter({...signal,l:{sl:95,t1:115}},cfg,1000);manual.mark('BTCUSDT',102,2000);
+const pos=manual.position(m);assert.equal(pos.gross,(102-m.entry)*m.qty);assert.equal(pos.roi,pos.gross/m.margin*100);assert(pos.estimatedNet<pos.gross);
+manual.close(m.id,102,'MANUAL',3000);assert.equal(m.exit.reason,'MANUAL');assert.equal(m.exit.roi,m.exit.net/m.margin*100);assert.equal(manual.close(m.id,102),null);
+const shortROI=new Paper();const sr=shortROI.enter({...signal,d:'SHORT',l:{sl:105,t1:85}},cfg,1000);shortROI.mark('BTCUSDT',98,2000);assert(shortROI.position(sr).roi>0);
+console.log('PASS: entry/exit, fees, frozen snapshot, persistence, duplicates, entry RR, gaps, long/short unrealized ROI and idempotent manual close');
