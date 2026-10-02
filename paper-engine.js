@@ -15,7 +15,7 @@
       const budget=Math.max(0,cfg.account*cfg.margin/100-reserved);
       const qty=Math.min(cfg.account*cfg.risk/100/(risk+(entry+stop)*this.fee+stop*this.slip),budget*cfg.lev/entry);
       if(!(qty>0))return null;
-      const trade={id:key,sym:x.sym,dir:x.d,grade:x.g,status:x.st,opened:now,entry,stop,target,qty,margin:qty*entry/cfg.lev,feeRate:this.fee,slippage:this.slip,lastObserved:now,
+      const trade={id:key,sym:x.sym,dir:x.d,grade:x.g,status:x.st,opened:now,entry,stop,target,qty,margin:qty*entry/cfg.lev,feeRate:this.fee,slippage:this.slip,lastObserved:now,lastPrice:x.p,
         reason:`${x.g} / ${x.st}; Score ${x.sc}; timeframe alignment ${x.a}/4; TP1 R:R ${(reward/risk).toFixed(2)}`,
         snapshot:JSON.parse(JSON.stringify(x)),config:{...cfg},rr:reward/risk};
       this.state.trades.push(trade);this.state.seen.push(key);return trade;
@@ -29,11 +29,25 @@
         t.lastObserved=now;t.lastPrice=price;
         const why=sign*(price-t.stop)<=0?'STOP':sign*(price-t.target)>=0?'TP1':null;
         if(!why)continue;
-        const exit=price*(1-sign*t.slippage),gross=sign*(exit-t.entry)*t.qty,fees=(t.entry+exit)*t.qty*t.feeRate;
-        t.exit={time:now,price:exit,reason:why,gross,fees,net:gross-fees,funding:null,model:'Observed quote + assumed slippage; funding excluded'};
+        this.close(t.id,price,why,now);
         closed.push(t);
       }
       return closed;
+    }
+    position(t){
+      const price=t.lastPrice;
+      if(!Number.isFinite(price)||price<=0)return null;
+      const sign=t.dir==='LONG'?1:-1,gross=sign*(price-t.entry)*t.qty;
+      const estimatedExit=price*(1-sign*t.slippage),fees=(t.entry+estimatedExit)*t.qty*t.feeRate;
+      const estimatedNet=sign*(estimatedExit-t.entry)*t.qty-fees;
+      return{price,gross,roi:t.margin>0?gross/t.margin*100:null,estimatedNet,estimatedNetRoi:t.margin>0?estimatedNet/t.margin*100:null};
+    }
+    close(id,price,reason='MANUAL',now=Date.now()){
+      const t=this.state.trades.find(t=>t.id===id);
+      if(!t||t.exit||!Number.isFinite(price)||price<=0)return null;
+      const sign=t.dir==='LONG'?1:-1,exit=price*(1-sign*t.slippage),gross=sign*(exit-t.entry)*t.qty,fees=(t.entry+exit)*t.qty*t.feeRate;
+      t.exit={time:now,price:exit,reason,gross,fees,net:gross-fees,roi:t.margin>0?(gross-fees)/t.margin*100:null,funding:null,model:'Observed quote + assumed slippage; funding excluded'};
+      return t;
     }
   }
   if(typeof module!=='undefined')module.exports=PaperEngine;else root.PaperEngine=PaperEngine;
