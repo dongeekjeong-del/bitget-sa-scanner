@@ -1,5 +1,5 @@
 const PAPER_KEY='bitget-paper-journal-v1';
-let paper,storageOK=true,quoteBusy=false;
+let paper,storageOK=true,quoteBusy=false,paperOwner=false;
 try{paper=new PaperEngine(JSON.parse(localStorage.getItem(PAPER_KEY)||'{"trades":[],"seen":[]}'));if(!Array.isArray(paper.state.trades)||!Array.isArray(paper.state.seen))throw Error('Invalid journal');}
 catch(e){storageOK=false;paper=new PaperEngine();document.getElementById('paperStatus').textContent='저장된 일지 읽기 실패. 자동 진입 중단.';}
 function paperSave(){try{localStorage.setItem(PAPER_KEY,JSON.stringify(paper.state));}catch(e){storageOK=false;document.getElementById('paperEnabled').checked=false;document.getElementById('paperStatus').textContent='일지 저장 실패. 자동 진입 중단. JSON을 내보내세요.';}paperRender();}
@@ -14,21 +14,21 @@ function paperRender(){
   }
 }
 function paperSignals(results){
-  if(!storageOK||!document.getElementById('paperEnabled').checked)return;
+  if(!paperOwner||!storageOK||document.hidden||!document.getElementById('paperEnabled').checked)return;
   const cfg={account:+document.getElementById('account').value,risk:+document.getElementById('risk').value,lev:+document.getElementById('lev').value,margin:+document.getElementById('margin').value};
   // Each quote was retrieved during analysis; do not use a result aged by a slow full scan.
   for(const x of results){if(Date.now()-x.observedAt>15000)continue;paper.enter(x,cfg);}
   paperSave();
 }
 async function paperQuotes(){
-  if(quoteBusy||!storageOK||!paper.state.trades.some(t=>!t.exit))return;
+  if(!paperOwner||quoteBusy||!storageOK||!paper.state.trades.some(t=>!t.exit))return;
   quoteBusy=true;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
   try{
     const r=await fetch('https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES',{cache:'no-store',signal:controller.signal});
     if(!r.ok)throw Error('HTTP '+r.status);const j=await r.json();if(j.code!=='00000'||!Array.isArray(j.data))throw Error('Invalid tickers');
-    const now=Date.now();
-    for(const q of j.data){const ts=+q.ts;if(!Number.isFinite(ts)||now-ts>15000||ts>now+5000)continue;paper.mark(q.symbol,+q.lastPr,now);}
-    paperSave();document.getElementById('paperStatus').textContent='모의 가격 확인: '+new Date().toLocaleTimeString();
+    const now=Date.now(),openSymbols=new Set(paper.state.trades.filter(t=>!t.exit).map(t=>t.sym)),fresh=new Set();
+    for(const q of j.data){const ts=+q.ts;if(!Number.isFinite(ts)||now-ts>15000||ts>now+5000)continue;if(!Number.isFinite(+q.lastPr)||+q.lastPr<=0)continue;fresh.add(q.symbol);paper.mark(q.symbol,+q.lastPr,now);}
+    paperSave();if([...openSymbols].some(sym=>!fresh.has(sym)))throw Error('Missing fresh quotes');document.getElementById('paperStatus').textContent='모의 가격 확인: '+new Date().toLocaleTimeString();
   }catch(e){document.getElementById('paperStatus').textContent='가격 확인 실패 — 새 진입 중단';document.getElementById('paperEnabled').checked=false;}
   finally{clearTimeout(timer);quoteBusy=false;}
 }
@@ -36,4 +36,15 @@ document.getElementById('paperExport').onclick=()=>{
   const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,mode:'paper',exported:new Date().toISOString(),...paper.state},null,2)],{type:'application/json'}));
   const a=document.createElement('a');a.href=url;a.download='bitget-paper-journal.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
-paperRender();setInterval(paperQuotes,5000);paperQuotes();
+paperRender();
+const enableBox=document.getElementById('paperEnabled');enableBox.disabled=true;
+if(navigator.locks&&storageOK){
+  navigator.locks.request('bitget-paper-journal-owner',{ifAvailable:true},async lock=>{
+    if(!lock){document.getElementById('paperStatus').textContent='다른 탭이 모의매매를 실행 중입니다.';return;}
+    try{paper=new PaperEngine(JSON.parse(localStorage.getItem(PAPER_KEY)||'{"trades":[],"seen":[]}'));if(!Array.isArray(paper.state.trades)||!Array.isArray(paper.state.seen))throw Error('Invalid journal');}
+    catch(e){storageOK=false;document.getElementById('paperStatus').textContent='일지 읽기 실패. 자동 진입 중단.';return;}
+    paperOwner=true;enableBox.disabled=false;paperRender();setInterval(paperQuotes,5000);paperQuotes();
+    await new Promise(()=>{});
+  }).catch(()=>{enableBox.disabled=true;document.getElementById('paperStatus').textContent='모의매매 잠금 실패. 자동 진입 중단.';});
+}else if(storageOK){document.getElementById('paperStatus').textContent='이 브라우저는 중복 실행 방지 기능을 지원하지 않습니다.';}
+
