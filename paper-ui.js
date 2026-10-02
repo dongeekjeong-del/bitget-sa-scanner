@@ -3,20 +3,21 @@ let paper,storageOK=true,quoteBusy=false,paperOwner=false,manualClosing=false;
 try{paper=new PaperEngine(JSON.parse(localStorage.getItem(PAPER_KEY)||'{"trades":[],"seen":[]}'));if(!Array.isArray(paper.state.trades)||!Array.isArray(paper.state.seen))throw Error('Invalid journal');}
 catch(e){storageOK=false;paper=new PaperEngine();document.getElementById('paperStatus').textContent='저장된 일지 읽기 실패. 자동 진입 중단.';}
 function paperSave(){try{localStorage.setItem(PAPER_KEY,JSON.stringify(paper.state));}catch(e){storageOK=false;document.getElementById('paperEnabled').checked=false;document.getElementById('paperStatus').textContent='일지 저장 실패. 자동 진입 중단. JSON을 내보내세요.';}paperRender();}
-function paperRender(){
-  const el=document.getElementById('journal');el.replaceChildren();
-  for(const t of [...paper.state.trades].reverse()){
+function paperRender(engine=paper,target="journal",demo=false){
+  const el=document.getElementById(target);el.replaceChildren();
+  if(!engine.state.trades.length)el.textContent="현재 모의 포지션이 없습니다. 위의 데모 포지션 보기로 화면을 확인하세요.";
+  for(const t of [...engine.state.trades].reverse()){
     const card=document.createElement('div');card.className='card';
-    const title=document.createElement('b');title.textContent=`${t.sym} ${t.dir} · ${t.exit?'CLOSED':'OPEN'} · ${t.grade} / ${t.status}`;card.append(title);
+    const title=document.createElement('b');title.textContent=`${demo?"DEMO · ":""}${t.sym} ${t.dir} · ${t.exit?'CLOSED':'OPEN'} · ${t.grade} / ${t.status}`;card.append(title);
     const body=document.createElement('div');body.style.whiteSpace='pre-wrap';
     body.textContent=`진입: ${new Date(t.opened).toLocaleString()} @ ${t.entry}\n근거: ${t.reason}\n손절 ${t.stop} / TP1 ${t.target} / 수량 ${t.qty}\n`+(t.exit?`청산: ${new Date(t.exit.time).toLocaleString()} @ ${t.exit.price} (${t.exit.reason})\n총손익 $${t.exit.gross.toFixed(2)} · 추정 수수료 $${t.exit.fees.toFixed(2)} · 순손익 $${t.exit.net.toFixed(2)} (펀딩 제외)`:'보유 중')+(t.observationGap?'\n가격 관측 공백 있음 — 청산 시점 및 성과 해석에 주의':'');
     card.append(body);
     const pnl=document.createElement('div');pnl.style.whiteSpace='pre-wrap';
     if(!t.exit){
-      const p=paper.position(t),fresh=Date.now()-t.lastObserved<=15000;
+      const p=engine.position(t),fresh=Date.now()-t.lastObserved<=15000;
       pnl.textContent=`증거금 $${t.margin.toFixed(2)} · 레버리지 ${t.config.lev}x\n현재가 ${p?p.price:'—'} · 가격 확인 ${new Date(t.lastObserved).toLocaleTimeString()}${fresh?'':' (갱신 지연)'}\n미실현 손익 ${p?'$'+p.gross.toFixed(2):'—'} · ROI ${p?p.roi.toFixed(2)+'%':'—'} (수수료 전)\n지금 청산 시 추정 순손익 ${p?'$'+p.estimatedNet.toFixed(2):'—'} · 순 ROI ${p?p.estimatedNetRoi.toFixed(2)+'%':'—'} (펀딩 제외)\nTP ${t.target} / SL ${t.stop}`;
-      const button=document.createElement('button');button.textContent=p?(p.estimatedNet>=0?'모의 익절 · 전량 종료':'모의 손절 · 전량 종료'):'모의 포지션 전량 종료';button.disabled=!paperOwner||!storageOK||manualClosing;
-      button.onclick=()=>paperManualClose(t.id);card.append(pnl,button);
+      const button=document.createElement('button');button.textContent=p?(p.estimatedNet>=0?'모의 익절 · 전량 종료':'모의 손절 · 전량 종료'):'모의 포지션 전량 종료';button.disabled=demo?false:(!paperOwner||!storageOK||manualClosing);
+      button.onclick=()=>{if(demo){engine.close(t.id,t.lastPrice,'MANUAL');paperRender(engine,target,true);document.getElementById('demoPrice').disabled=true;}else paperManualClose(t.id);};card.append(pnl,button);
     }else{pnl.textContent=`실현 순 ROI ${((t.exit.net/t.margin)*100).toFixed(2)}% · 증거금 기준`;card.append(pnl);}
     el.append(card);
   }
@@ -65,3 +66,22 @@ if(navigator.locks&&storageOK){
     await new Promise(()=>{});
   }).catch(()=>{enableBox.disabled=true;document.getElementById('paperStatus').textContent='모의매매 잠금 실패. 자동 진입 중단.';});
 }else if(storageOK){document.getElementById('paperStatus').textContent='이 브라우저는 중복 실행 방지 기능을 지원하지 않습니다.';}
+
+// Isolated synthetic preview: never saved, exported or fed to the public-quote loop.
+let demoEngine=null;
+const demoHost=document.createElement('section');demoHost.className='card';
+const demoButton=document.createElement('button');demoButton.textContent='데모 포지션 보기 / 다시 시작';demoButton.id='demoStart';
+const demoLabel=document.createElement('p');demoLabel.className='hint';demoLabel.textContent='화면 확인용 가상 가격입니다. 데모는 거래일지에 저장되지 않습니다.';
+const demoPrice=document.createElement('input');demoPrice.id='demoPrice';demoPrice.type='range';demoPrice.min='94';demoPrice.max='116';demoPrice.step='0.1';demoPrice.value='100';demoPrice.disabled=true;demoPrice.style.width='100%';demoPrice.setAttribute('aria-label','데모 현재가 조절: 94부터 116');
+const demoPriceLabel=document.createElement('p');demoPriceLabel.textContent='가격 슬라이더: SL 95 / 진입 약 100 / TP 115';
+const demoJournal=document.createElement('div');demoJournal.id='demoJournal';
+const demoExamples=document.createElement('div');demoExamples.className='actions';
+for(const [label,price]of [['손실 예시',98],['수익 예시',103],['TP 도달',115],['SL 도달',95]]){
+ const b=document.createElement('button');b.textContent=label;b.onclick=()=>{if(!demoEngine||demoEngine.state.trades[0].exit)return;demoPrice.value=String(price);demoPrice.oninput();};demoExamples.append(b);
+}
+demoHost.append(demoButton,demoLabel,demoPriceLabel,demoPrice,demoExamples,demoJournal);document.getElementById('journal').before(demoHost);
+demoButton.onclick=()=>{
+ demoEngine=new PaperEngine();demoEngine.enter({sym:'DEMOUSDT',d:'LONG',g:'A+',st:'ENTRY WATCH',signalTime:Date.now(),p:100,sc:4.5,a:3,l:{sl:95,t1:115}}, {account:1000,risk:1,lev:10,margin:35});
+ demoPrice.value='100';demoPrice.disabled=false;paperRender(demoEngine,'demoJournal',true);
+};
+demoPrice.oninput=()=>{if(!demoEngine)return;demoEngine.mark('DEMOUSDT',+demoPrice.value);paperRender(demoEngine,'demoJournal',true);if(demoEngine.state.trades[0].exit)demoPrice.disabled=true;};
