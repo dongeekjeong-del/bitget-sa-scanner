@@ -2,9 +2,19 @@
 (function(root){
   class PaperEngine {
     constructor(state={trades:[],seen:[]},fee=0.0006,slip=0.0005){
-      this.state=JSON.parse(JSON.stringify(state));this.fee=fee;this.slip=slip;
+      if(!state||!Array.isArray(state.trades)||!Array.isArray(state.seen)||!state.seen.every(k=>typeof k==='string'))throw Error('Invalid paper journal');
+      if(![fee,slip].every(n=>Number.isFinite(n)&&n>=0&&n<1))throw Error('Invalid cost assumptions');
+      const ids=new Set(),openSymbols=new Set();
+      for(const t of state.trades){
+        if(!t||typeof t.id!=='string'||typeof t.sym!=='string'||!['LONG','SHORT'].includes(t.dir)||ids.has(t.id)||![t.entry,t.stop,t.target,t.qty,t.margin,t.config?.lev].every(n=>Number.isFinite(n)&&n>0)||![t.opened,t.lastObserved].every(n=>Number.isFinite(n)&&n>=0)||![t.feeRate,t.slippage].every(n=>Number.isFinite(n)&&n>=0&&n<1))throw Error('Invalid trade record');
+        if(t.exit){if(![t.exit.price,t.exit.time,t.exit.gross,t.exit.fees,t.exit.net].every(Number.isFinite)||t.exit.price<=0||t.exit.time<t.opened)throw Error('Invalid exit record');}
+        else{if(openSymbols.has(t.sym))throw Error('Duplicate open position');openSymbols.add(t.sym);}
+        ids.add(t.id);
+      }
+      this.state=JSON.parse(JSON.stringify(state));this.state.version=1;this.state.seen=[...new Set([...state.seen,...ids])];this.fee=fee;this.slip=slip;
     }
     enter(x,cfg,now=Date.now()){
+      if(!x||!cfg||!['LONG','SHORT'].includes(x.d)||typeof x.sym!=='string'||!x.sym||!Number.isFinite(x.signalTime)||!Number.isFinite(now)||now<0||cfg.risk>100||cfg.margin>100||cfg.lev<1)return null;
       if(!['A+','S'].includes(x.g)||!['ENTRY WATCH','TRIGGERED'].includes(x.st)||!x.l)return null;
       const key=[x.sym,x.d,x.signalTime].join(':');
       if(this.state.seen.includes(key)||this.state.trades.some(t=>t.sym===x.sym&&!t.exit))return null;
@@ -24,6 +34,7 @@
       if(!Number.isFinite(price)||price<=0)return [];
       const closed=[];
       for(const t of this.state.trades.filter(t=>t.sym===sym&&!t.exit)){
+        if(!Number.isFinite(now)||now<t.lastObserved)continue;
         const sign=t.dir==='LONG'?1:-1;
         if(now-t.lastObserved>15000)t.observationGap=true;
         t.lastObserved=now;t.lastPrice=price;
@@ -63,7 +74,7 @@
     }
     close(id,price,reason='MANUAL',now=Date.now()){
       const t=this.state.trades.find(t=>t.id===id);
-      if(!t||t.exit||!Number.isFinite(price)||price<=0)return null;
+      if(!t||t.exit||!Number.isFinite(price)||price<=0||!Number.isFinite(now)||now<t.lastObserved||!['MANUAL','STOP','TP1'].includes(reason))return null;
       const sign=t.dir==='LONG'?1:-1,exit=price*(1-sign*t.slippage),gross=sign*(exit-t.entry)*t.qty,fees=(t.entry+exit)*t.qty*t.feeRate;
       t.exit={time:now,price:exit,reason,gross,fees,net:gross-fees,roi:t.margin>0?(gross-fees)/t.margin*100:null,funding:null,model:'Observed quote + assumed slippage; funding excluded'};
       return t;
