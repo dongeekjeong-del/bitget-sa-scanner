@@ -47,7 +47,7 @@ async function paperManualClose(id){
     const fresh=await paperQuotes(),t=paper.state.trades.find(t=>t.id===id);
     if(!t||t.exit)return;
     if(!fresh||Date.now()-t.lastObserved>15000||!storageOK){document.getElementById('paperStatus').textContent='최신 가격을 확인할 수 없어 모의 종료하지 않았습니다. 다시 시도하세요.';return;}
-    paper.close(id,t.lastPrice,'MANUAL');paperSave();document.getElementById('paperStatus').textContent='모의 포지션 종료 · 거래일지 저장 완료';
+    paper.close(id,t.lastPrice,'MANUAL');paperSave();if(storageOK)document.getElementById('paperStatus').textContent='모의 포지션 종료 · 거래일지 저장 완료';
   }finally{manualClosing=false;paperRender();}
 }
 document.getElementById('paperExport').onclick=()=>{
