@@ -14,6 +14,11 @@ const signal={sym:'BTCUSDT',d:'LONG',g:'A+',st:'ENTRY WATCH',signalTime:1,observ
  vm.runInContext('paperSignals([signal])',ctx);assert.equal(JSON.parse(stored.get('bitget-paper-journal-v1')).trades.length,1);
  await vm.runInContext('paperQuotes()',ctx);const t=JSON.parse(stored.get('bitget-paper-journal-v1')).trades[0];assert.equal(t.exit.reason,'TP1');assert(t.exit.net<t.exit.gross);assert.equal(document.getElementById('journal').children.length,1);
  ctx.signal={...signal,signalTime:2};vm.runInContext('paperSignals([signal])',ctx);fail=true;await vm.runInContext('paperQuotes()',ctx);assert.equal(document.getElementById('paperEnabled').checked,false);
+ fail=false;price=102;document.getElementById('paperEnabled').checked=true;
+ ctx.signal={...signal,signalTime:3};vm.runInContext('paperSignals([signal])',ctx);
+ const open=JSON.parse(stored.get('bitget-paper-journal-v1')).trades.find(t=>!t.exit);
+ ctx.closeId=open.id;await vm.runInContext('paperManualClose(closeId)',ctx);
+ const closed=JSON.parse(stored.get('bitget-paper-journal-v1')).trades.find(t=>t.id===open.id);assert.equal(closed.exit.reason,'MANUAL');assert(closed.exit.roi>0);
  assert(calls.every(c=>!c.opts.method&&!c.opts.headers));assert(calls.every(c=>c.url.includes('/market/tickers')));
  vm.runInContext('document.getElementById("paperExport").onclick()',ctx);
  console.log('PASS: UI contract, paper entry/exit persistence, journal rendering, public API failures disable entries, export handler, no authenticated or order requests');
