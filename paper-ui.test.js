@@ -12,7 +12,8 @@ const signal={sym:'BTCUSDT',d:'LONG',g:'A+',st:'ENTRY WATCH',signalTime:1,observ
  await Promise.resolve();assert.equal(document.getElementById('paperEnabled').disabled,false);
  ctx.signal=signal;document.getElementById('paperEnabled').checked=true;
  vm.runInContext('paperSignals([signal])',ctx);assert.equal(JSON.parse(stored.get('bitget-paper-journal-v1')).trades.length,1);
- await vm.runInContext('paperQuotes()',ctx);const t=JSON.parse(stored.get('bitget-paper-journal-v1')).trades[0];assert.equal(t.exit.reason,'TP1');assert(t.exit.net<t.exit.gross);assert.equal(document.getElementById('journal').children.length,1);
+ const openCard=document.getElementById('journal').children[0];assert.equal(openCard.children[1].className,'position-table');assert.equal(openCard.children[1].children[1].children[1].className,'pnl-negative');assert(!openCard.children.some(c=>c.children?.[0]?.textContent==='진입 근거 · 지표 분석'));
+ await vm.runInContext('paperQuotes()',ctx);const t=JSON.parse(stored.get('bitget-paper-journal-v1')).trades[0];assert.equal(t.exit.reason,'TP1');assert(document.getElementById('journal').children[0].children.some(c=>c.children?.[0]?.textContent==='진입 근거 · 지표 분석'));assert(t.exit.net<t.exit.gross);assert.equal(document.getElementById('journal').children.length,1);
  ctx.signal={...signal,signalTime:2};vm.runInContext('paperSignals([signal])',ctx);fail=true;await vm.runInContext('paperQuotes()',ctx);assert.equal(document.getElementById('paperEnabled').checked,false);
  fail=false;price=102;document.getElementById('paperEnabled').checked=true;
  ctx.signal={...signal,signalTime:3};vm.runInContext('paperSignals([signal])',ctx);
