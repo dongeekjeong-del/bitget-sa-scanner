@@ -13,3 +13,10 @@ const pos=manual.position(m);assert.equal(pos.gross,(102-m.entry)*m.qty);assert.
 manual.close(m.id,102,'MANUAL',3000);assert.equal(m.exit.reason,'MANUAL');assert.equal(m.exit.roi,m.exit.net/m.margin*100);assert.equal(manual.close(m.id,102),null);
 const shortROI=new Paper();const sr=shortROI.enter({...signal,d:'SHORT',l:{sl:105,t1:85}},cfg,1000);shortROI.mark('BTCUSDT',98,2000);assert(shortROI.position(sr).roi>0);
 console.log('PASS: entry/exit, fees, frozen snapshot, persistence, duplicates, entry RR, gaps, long/short unrealized ROI and idempotent manual close');
+
+for(const bad of [{risk:101},{margin:101},{lev:0.5},{account:NaN}])assert.equal(new Paper().enter({...signal,l:{sl:95,t1:115}},{...cfg,...bad}),null);
+assert.equal(new Paper().enter({...signal,d:'INVALID'},cfg),null);
+assert.throws(()=>new Paper({trades:[{id:'broken'}],seen:[]}));
+const restoredState=JSON.parse(JSON.stringify(manual.state));restoredState.seen=[];assert(new Paper(restoredState).state.seen.includes(m.id));
+const ordered=new Paper();const ot=ordered.enter({...signal,l:{sl:95,t1:115}},cfg,1000);ordered.mark('BTCUSDT',102,2000);ordered.mark('BTCUSDT',94,1500);assert(!ot.exit);assert.equal(ot.lastPrice,102);
+console.log('PASS: invalid inputs, corrupt journal detection, reconstructed deduplication and out-of-order quotes');
