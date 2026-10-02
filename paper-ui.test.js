@@ -1,6 +1,6 @@
 // Headless DOM contract test, not a graphical browser test.
 const vm=require('node:vm'),fs=require('node:fs'),assert=require('node:assert/strict');
-const elements=new Map();function element(){return {children:[],checked:false,disabled:false,value:'',textContent:'',style:{},append(...c){this.children.push(...c)},replaceChildren(){this.children=[]},addEventListener(){},click(){}};}
+const elements=new Map();function element(){return {children:[],checked:false,disabled:false,value:'',textContent:'',style:{},append(...c){this.children.push(...c)},replaceChildren(){this.children=[]},addEventListener(){},setAttribute(){},before(){},click(){}};}
 const document={hidden:false,getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id)},createElement:element};
 for(const [id,value]of Object.entries({account:1000,risk:1,lev:10,margin:35}))document.getElementById(id).value=String(value);
 const stored=new Map(),calls=[];let price=116,fail=false;
@@ -20,6 +20,12 @@ const signal={sym:'BTCUSDT',d:'LONG',g:'A+',st:'ENTRY WATCH',signalTime:1,observ
  ctx.closeId=open.id;await vm.runInContext('paperManualClose(closeId)',ctx);
  const closed=JSON.parse(stored.get('bitget-paper-journal-v1')).trades.find(t=>t.id===open.id);assert.equal(closed.exit.reason,'MANUAL');assert(closed.exit.roi>0);
  assert(calls.every(c=>!c.opts.method&&!c.opts.headers));assert(calls.every(c=>c.url.includes('/market/tickers')));
+ const beforeDemo=stored.get('bitget-paper-journal-v1'),callsBefore=calls.length;
+ vm.runInContext('demoButton.onclick();demoPrice.value="103";demoPrice.oninput()',ctx);
+ assert(vm.runInContext('demoEngine.position(demoEngine.state.trades[0]).roi>0',ctx));
+ vm.runInContext('demoPrice.value="115";demoPrice.oninput()',ctx);assert.equal(vm.runInContext('demoEngine.state.trades[0].exit.reason',ctx),'TP1');
+ vm.runInContext('demoButton.onclick();demoPrice.value="95";demoPrice.oninput()',ctx);assert.equal(vm.runInContext('demoEngine.state.trades[0].exit.reason',ctx),'STOP');
+ assert.equal(stored.get('bitget-paper-journal-v1'),beforeDemo);assert.equal(calls.length,callsBefore);
  vm.runInContext('document.getElementById("paperExport").onclick()',ctx);
  console.log('PASS: UI contract, paper entry/exit persistence, journal rendering, public API failures disable entries, export handler, no authenticated or order requests');
 })().catch(e=>{console.error(e);process.exitCode=1});
