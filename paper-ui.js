@@ -1,0 +1,39 @@
+const PAPER_KEY='bitget-paper-journal-v1';
+let paper,storageOK=true,quoteBusy=false;
+try{paper=new PaperEngine(JSON.parse(localStorage.getItem(PAPER_KEY)||'{"trades":[],"seen":[]}'));if(!Array.isArray(paper.state.trades)||!Array.isArray(paper.state.seen))throw Error('Invalid journal');}
+catch(e){storageOK=false;paper=new PaperEngine();document.getElementById('paperStatus').textContent='저장된 일지 읽기 실패. 자동 진입 중단.';}
+function paperSave(){try{localStorage.setItem(PAPER_KEY,JSON.stringify(paper.state));}catch(e){storageOK=false;document.getElementById('paperEnabled').checked=false;document.getElementById('paperStatus').textContent='일지 저장 실패. 자동 진입 중단. JSON을 내보내세요.';}paperRender();}
+function paperRender(){
+  const el=document.getElementById('journal');el.replaceChildren();
+  for(const t of [...paper.state.trades].reverse()){
+    const card=document.createElement('div');card.className='card';
+    const title=document.createElement('b');title.textContent=`${t.sym} ${t.dir} · ${t.exit?'CLOSED':'OPEN'} · ${t.grade} / ${t.status}`;card.append(title);
+    const body=document.createElement('div');body.style.whiteSpace='pre-wrap';
+    body.textContent=`진입: ${new Date(t.opened).toLocaleString()} @ ${t.entry}\n근거: ${t.reason}\n손절 ${t.stop} / TP1 ${t.target} / 수량 ${t.qty}\n`+(t.exit?`청산: ${new Date(t.exit.time).toLocaleString()} @ ${t.exit.price} (${t.exit.reason})\n총손익 $${t.exit.gross.toFixed(2)} · 추정 수수료 $${t.exit.fees.toFixed(2)} · 순손익 $${t.exit.net.toFixed(2)} (펀딩 제외)`:'보유 중')+(t.observationGap?'\n가격 관측 공백 있음 — 청산 시점 및 성과 해석에 주의':'');
+    card.append(body);el.append(card);
+  }
+}
+function paperSignals(results){
+  if(!storageOK||!document.getElementById('paperEnabled').checked)return;
+  const cfg={account:+document.getElementById('account').value,risk:+document.getElementById('risk').value,lev:+document.getElementById('lev').value,margin:+document.getElementById('margin').value};
+  // Each quote was retrieved during analysis; do not use a result aged by a slow full scan.
+  for(const x of results){if(Date.now()-x.observedAt>15000)continue;paper.enter(x,cfg);}
+  paperSave();
+}
+async function paperQuotes(){
+  if(quoteBusy||!storageOK||!paper.state.trades.some(t=>!t.exit))return;
+  quoteBusy=true;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+  try{
+    const r=await fetch('https://api.bitget.com/api/v2/mix/market/tickers?productType=USDT-FUTURES',{cache:'no-store',signal:controller.signal});
+    if(!r.ok)throw Error('HTTP '+r.status);const j=await r.json();if(j.code!=='00000'||!Array.isArray(j.data))throw Error('Invalid tickers');
+    const now=Date.now();
+    for(const q of j.data){const ts=+q.ts;if(!Number.isFinite(ts)||now-ts>15000||ts>now+5000)continue;paper.mark(q.symbol,+q.lastPr,now);}
+    paperSave();document.getElementById('paperStatus').textContent='모의 가격 확인: '+new Date().toLocaleTimeString();
+  }catch(e){document.getElementById('paperStatus').textContent='가격 확인 실패 — 새 진입 중단';document.getElementById('paperEnabled').checked=false;}
+  finally{clearTimeout(timer);quoteBusy=false;}
+}
+document.getElementById('paperExport').onclick=()=>{
+  const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,mode:'paper',exported:new Date().toISOString(),...paper.state},null,2)],{type:'application/json'}));
+  const a=document.createElement('a');a.href=url;a.download='bitget-paper-journal.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+paperRender();setInterval(paperQuotes,5000);paperQuotes();
