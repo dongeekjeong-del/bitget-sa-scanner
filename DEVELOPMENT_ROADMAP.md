@@ -1,0 +1,12 @@
+# Automatic trading development roadmap
+
+Live orders stay disabled. Notify the user and obtain their explicit confirmation before any actual order or live-mode activation. No API secrets in GitHub or browser code.
+
+1. Paper reliability (started): validate sizing inputs and restored records; reconstruct duplicate-signal keys; ignore out-of-order quotes. Next: atomic persistence, crash recovery, funding/actual fee inputs, configurable aggregate risk, daily loss stop and order-event audit logs. Current tests cover engine and mocked UI; graphical browser QA is still outstanding.
+2. Persistent execution service: share the scanner rules with a server worker; transactional database, heartbeat, recovery, stale-price guards, reconnects, pause switch, durable journal and dashboard. Verify uninterrupted paper operation across browser closure and worker restarts. Server provider/cost is not selected yet.
+3. Read-only Bitget account connection: verify account type and available API, server-side secret storage, account balance, positions, orders and exchange fees. Reconcile dashboard PnL/ROE and TP/SL against exchange values. No orders in this stage.
+4. Execution adapter in simulation/demo: A+/S AND ENTRY WATCH/TRIGGERED, refresh price and sizing, symbol precision/minimum-size checks, unique order identities, pending-order/partial-fill management, reduce-only exits, exchange-held TP/SL, reconciliation after timeout and restart, failed-stop emergency handling. Do not assume an HTTP timeout means an order failed. Freeze the accepted setup; do not chase recalculated levels.
+5. Strategy validation: historical tests without look-ahead plus forward paper/demo trading, fees/slippage/funding, gap handling, profit/loss and drawdown review. Grades alone do not establish profitability. Set concrete acceptance criteria before enabling live mode.
+6. Live transition: present configured capital/risk/leverage, symbols, entry/exit behavior, account/API permissions and stop conditions for user review; obtain confirmation; then controlled activation with monitoring and rollback/pause behavior. Actual orders are not authorized by this roadmap.
+
+Current constraints: browser-local storage, page must stay active, five-second observed quotes can miss TP/SL crossings, one current-price entry and TP1 full exit, assumed fees/slippage, funding excluded, fixed account sizing base. Local backup/export exists; server persistence, streaming/reconciliation, split entries, partial exits and divergence analysis are not implemented.
