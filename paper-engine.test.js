@@ -1,0 +1,11 @@
+const assert=require('node:assert/strict');const Paper=require('./paper-engine');
+const cfg={account:1000,risk:1,lev:2,margin:35};
+const signal={sym:'BTCUSDT',d:'LONG',g:'A+',st:'ENTRY WATCH',signalTime:1,p:100,sc:4.5,a:3,l:{sl:95,t1:115}};
+const p=new Paper();const t=p.enter(signal,cfg,1000);assert(t);signal.l.sl=80;assert.equal(t.snapshot.l.sl,95);assert.equal(t.stop,95);
+assert.equal(p.enter(signal,cfg,1001),null);p.mark('BTCUSDT',116,2000);assert.equal(t.exit.reason,'TP1');assert(t.exit.net<t.exit.gross);
+assert.equal(p.enter(signal,cfg,2001),null);assert.equal(new Paper(p.state).state.trades[0].exit.net,t.exit.net);
+const short=new Paper();const s=short.enter({...signal,d:'SHORT',g:'S',st:'TRIGGERED',l:{sl:105,t1:85}},cfg,1000);assert(s);short.mark('BTCUSDT',106,2000);assert.equal(s.exit.reason,'STOP');assert(s.exit.net<0);
+for(const st of ['WAIT PULLBACK','INVALID','DEEP / WEAK','PASS'])assert.equal(new Paper().enter({...signal,st},cfg),null);
+assert.equal(new Paper().enter({...signal,g:'A'},cfg),null);assert.equal(new Paper().enter({...signal,l:{sl:95,t1:105}},cfg),null);
+const gap=new Paper();gap.enter({...signal,l:{sl:95,t1:115}},cfg,1000);gap.mark('BTCUSDT',116,30000);assert(gap.state.trades[0].observationGap);
+console.log('PASS: eligibility, long/short exits, fees, duplicate prevention, frozen snapshot, persistence, actual-entry RR and observation gaps');
