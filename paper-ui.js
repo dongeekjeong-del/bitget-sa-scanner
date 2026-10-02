@@ -3,22 +3,34 @@ let paper,storageOK=true,quoteBusy=false,paperOwner=false,manualClosing=false;
 try{paper=new PaperEngine(JSON.parse(localStorage.getItem(PAPER_KEY)||'{"trades":[],"seen":[]}'));if(!Array.isArray(paper.state.trades)||!Array.isArray(paper.state.seen))throw Error('Invalid journal');}
 catch(e){storageOK=false;paper=new PaperEngine();document.getElementById('paperStatus').textContent='저장된 일지 읽기 실패. 자동 진입 중단.';}
 function paperSave(){try{localStorage.setItem(PAPER_KEY,JSON.stringify(paper.state));}catch(e){storageOK=false;document.getElementById('paperEnabled').checked=false;document.getElementById('paperStatus').textContent='일지 저장 실패. 자동 진입 중단. JSON을 내보내세요.';}paperRender();}
+function paperNumber(n){return Number.isFinite(n)?n.toLocaleString('en-US',{maximumFractionDigits:Math.abs(n)<1?8:4}):'—';}
+function paperSigned(n,suffix){return Number.isFinite(n)?(n>0?'+':n<0?'-':'')+suffix+Math.abs(n).toFixed(2):'—';}
 function paperRender(engine=paper,target="journal",demo=false){
   const el=document.getElementById(target);el.replaceChildren();
   if(!engine.state.trades.length)el.textContent="현재 모의 포지션이 없습니다. 위의 데모 포지션 보기로 화면을 확인하세요.";
-  for(const t of [...engine.state.trades].reverse()){
+  for(const t of [...engine.state.trades].sort((a,b)=>Number(!!a.exit)-Number(!!b.exit)||b.opened-a.opened)){
     const card=document.createElement('div');card.className='card';
-    const title=document.createElement('b');title.textContent=`${demo?"DEMO · ":""}${t.sym} ${t.dir} · ${t.exit?'CLOSED':'OPEN'} · ${t.grade} / ${t.status}`;card.append(title);
-    const body=document.createElement('div');body.style.whiteSpace='pre-wrap';
-    body.textContent=`진입: ${new Date(t.opened).toLocaleString()} @ ${t.entry}\n근거: ${t.reason}\n손절 ${t.stop} / TP1 ${t.target} / 수량 ${t.qty}\n`+(t.exit?`청산: ${new Date(t.exit.time).toLocaleString()} @ ${t.exit.price} (${t.exit.reason})\n총손익 $${t.exit.gross.toFixed(2)} · 추정 수수료 $${t.exit.fees.toFixed(2)} · 순손익 $${t.exit.net.toFixed(2)} (펀딩 제외)`:'보유 중')+(t.observationGap?'\n가격 관측 공백 있음 — 청산 시점 및 성과 해석에 주의':'');
-    card.append(body);
-    const pnl=document.createElement('div');pnl.style.whiteSpace='pre-wrap';
+    const title=document.createElement('b');title.textContent=`${demo?'DEMO · ':''}${t.exit?'거래일지':'Position'} · ${t.sym.replace('USDT','')} · ${t.dir}`;card.append(title);
+    const table=document.createElement('table');table.className='position-table';
+    const p=engine.position(t);
+    const row=(label,value,sign)=>{const tr=document.createElement('tr'),th=document.createElement('th'),td=document.createElement('td');th.textContent=label;th.setAttribute('scope','row');td.textContent=value;if(Number.isFinite(sign))td.className=sign>0?'pnl-positive':sign<0?'pnl-negative':'pnl-zero';tr.append(th,td);table.append(tr);};
+    row('종목',t.sym.replace('USDT','')+' / '+t.dir);
+    if(!t.exit){row('Unrealized PnL',p?paperSigned(p.gross,'$'):'—',p?.gross);row('ROE',p?paperSigned(p.roi,'')+'%':'—',p?.roi);}
+    else{row('Realized PnL',paperSigned(t.exit.net,'$'),t.exit.net);row('ROE (순손익)',paperSigned(t.exit.net/t.margin*100,'')+'%',t.exit.net);}
+    row('Entry price','$'+paperNumber(t.entry));row(t.exit?'Exit price':'Market price','$'+paperNumber(t.exit?t.exit.price:p?.price));
+    row('Take Profit / Stop Loss','$'+paperNumber(t.target)+' / $'+paperNumber(t.stop));
+    row('수량 / 레버리지',paperNumber(t.qty)+' / '+t.config.lev+'x');row('증거금','$'+t.margin.toFixed(2));
+    card.append(table);
+    const note=document.createElement('p');note.className='hint';
     if(!t.exit){
-      const p=engine.position(t),fresh=Date.now()-t.lastObserved<=15000;
-      pnl.textContent=`증거금 $${t.margin.toFixed(2)} · 레버리지 ${t.config.lev}x\n현재가 ${p?p.price:'—'} · 가격 확인 ${new Date(t.lastObserved).toLocaleTimeString()}${fresh?'':' (갱신 지연)'}\n미실현 손익 ${p?'$'+p.gross.toFixed(2):'—'} · ROI ${p?p.roi.toFixed(2)+'%':'—'} (수수료 전)\n지금 청산 시 추정 순손익 ${p?'$'+p.estimatedNet.toFixed(2):'—'} · 순 ROI ${p?p.estimatedNetRoi.toFixed(2)+'%':'—'} (펀딩 제외)\nTP ${t.target} / SL ${t.stop}`;
+      note.textContent=`가격 확인 ${new Date(t.lastObserved).toLocaleTimeString()}${Date.now()-t.lastObserved>15000?' · 갱신 지연':''} · ROE = 미실현 손익 ÷ 증거금 (수수료 전)`;
+      card.append(note);
       const button=document.createElement('button');button.textContent=p?(p.estimatedNet>=0?'모의 익절 · 전량 종료':'모의 손절 · 전량 종료'):'모의 포지션 전량 종료';button.disabled=demo?false:(!paperOwner||!storageOK||manualClosing);
-      button.onclick=()=>{if(demo){engine.close(t.id,t.lastPrice,'MANUAL');paperRender(engine,target,true);document.getElementById('demoPrice').disabled=true;}else paperManualClose(t.id);};card.append(pnl,button);
-    }else{pnl.textContent=`실현 순 ROI ${((t.exit.net/t.margin)*100).toFixed(2)}% · 증거금 기준`;card.append(pnl);}
+      button.onclick=()=>{if(demo){engine.close(t.id,t.lastPrice,'MANUAL');paperRender(engine,target,true);document.getElementById('demoPrice').disabled=true;}else paperManualClose(t.id);};card.append(button);
+    }else{
+      note.textContent=`진입 ${new Date(t.opened).toLocaleString()} · 종료 ${new Date(t.exit.time).toLocaleString()} · ${t.exit.reason} · 추정 수수료 $${t.exit.fees.toFixed(2)} · 펀딩 제외${t.observationGap?' · 가격 관측 공백 있음':''}`;card.append(note);
+      const details=document.createElement('details'),summary=document.createElement('summary'),body=document.createElement('div');summary.textContent='진입 근거 · 지표 분석';body.style.whiteSpace='pre-wrap';body.textContent=demo?'화면 확인용 예시 거래입니다. 실제 시장 지표 분석에 따른 진입이 아닙니다.':(t.entryAnalysis||engine.explain(t.snapshot));details.append(summary,body);card.append(details);
+    }
     el.append(card);
   }
 }
